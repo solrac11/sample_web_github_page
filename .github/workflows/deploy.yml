@@ -4,7 +4,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main # or master - make sure this matches your default branch
+      - master # or master - make sure this matches your default branch
 
 jobs:
   deploy:
