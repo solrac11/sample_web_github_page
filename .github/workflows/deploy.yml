@@ -1,114 +1,35 @@
-name: Next.js CI/CD with AWS
+# .github/workflows/deploy.yml
+name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ ci_cd ]
-
-env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  AWS_REGION: ap-southeast-1
-  NEXT_PUBLIC_SERVER_URL: ${{ secrets.NEXT_PUBLIC_SERVER_URL }}
-  NEXT_PUBLIC_IS_LIVE: ${{ secrets.NEXT_PUBLIC_IS_LIVE }}
+    branches:
+      - main # or master - make sure this matches your default branch
 
 jobs:
-  deploy-infra: 
+  deploy:
     runs-on: ubuntu-latest
-    outputs:
-      SERVER_PUBLIC_IP: ${{ steps.set-ip.outputs.instance_public_ip }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
-        with:
-          terraform_wrapper: false
-
-      - name: Terraform Init
-        run: terraform init -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET_NAME }}" -backend-config="region=${{ env.AWS_REGION }}"
-        working-directory: ./terraform
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
-        working-directory: ./terraform
-
-      - name: Set output
-        id: set-ip
-        run: echo "instance_public_ip=$(terraform output instance_public_ip)" >> $GITHUB_OUTPUT
-        working-directory: ./terraform
-
-  build-and-deploy:
-    needs: deploy-infra
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and Export Next.js app
-        run: npm run export
+      - name: Build
+        run: npm run build && npm run export
         env:
-          NEXT_PUBLIC_SERVER_URL: ${{ secrets.NEXT_PUBLIC_SERVER_URL }}
-          NEXT_PUBLIC_IS_LIVE: ${{ secrets.NEXT_PUBLIC_IS_LIVE }}
+          NEXT_PUBLIC_BASE_PATH: '/${{ github.event.repository.name }}'
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }}
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_KEY_PRIVATE }}
-          script: |
-            sudo apt update
-            sudo apt install nginx -y
-            sudo rm -rf /var/www/html/*
-            sudo mkdir -p /var/www/html
-            
-      - name: Copy files to EC2
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }}
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_KEY_PRIVATE }}
-          source: "out/*"
-          target: "/var/www/html"
-          strip_components: 1
+      - name: Add .nojekyll file
+        run: touch out/.nojekyll
 
-      - name: Configure Nginx
-        uses: appleboy/ssh-action@master
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          host: ${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }}
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_KEY_PRIVATE }}
-          script: |
-            sudo tee /etc/nginx/sites-available/default > /dev/null << 'EOL'
-            server {
-                listen 80 default_server;
-                root /var/www/html;
-                index index.html;
-                
-                location / {
-                    try_files $uri $uri.html $uri/ =404;
-                }
-            }
-            EOL
-            sudo systemctl restart nginx
-
-      - name: Health check
-        run: |
-          sleep 10
-          curl -sSf http://${{ needs.deploy-infra.outputs.SERVER_PUBLIC_IP }} > /dev/null
-
-      - name: Notify Slack
-        if: always()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          text: Next.js deployment ${{ job.status == 'success' && 'succeeded! 🎉' || 'failed! 🚨' }}
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          branch: gh-pages
+          folder: out

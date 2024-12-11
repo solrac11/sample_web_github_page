@@ -6,7 +6,10 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   output: 'export',
   reactStrictMode: true,
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH,
+  assetPrefix: process.env.NEXT_PUBLIC_BASE_PATH,
   images: {
+    unoptimized: true, // Required for static export
     remotePatterns: [
       {
         protocol: 'http',
@@ -17,13 +20,12 @@ const nextConfig: NextConfig = {
         hostname: process.env.NEXT_PUBLIC_SERVER_URL ? 
           process.env.NEXT_PUBLIC_SERVER_URL.replace(/https?:\/\//, '') : '',
       }
-    ].filter(pattern => pattern.hostname), // Filter out empty hostnames
+    ].filter(pattern => pattern.hostname),
   },
   redirects,
   async headers() {
     const headers = []
 
-    // Add noindex header for non-live environments
     if (!process.env.NEXT_PUBLIC_IS_LIVE) {
       headers.push({
         headers: [
@@ -36,7 +38,6 @@ const nextConfig: NextConfig = {
       })
     }
 
-    // Add security headers
     headers.push({
       source: '/(.*)',
       headers: [
